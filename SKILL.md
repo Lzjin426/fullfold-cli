@@ -81,6 +81,10 @@ fullfold-cli --json --library /path/to/lib pdf annotations list --path paper.pdf
 
 ### 自动编号标题
 
+导入或整理已有章节编号的文档时，不要仅按默认风格直接开启自动编号。若用户尚未明确本次选择，操作前说明并询问：保留原书编号，还是改用 Fullfold 自动编号。结合文档说明可能的显示变化及其对正文引用、公式和图表编号的影响。用户已有明确选择时遵照执行，不重复询问。
+
+当前 Fullfold 的自动编号按当前文档启用编号的标题从 1 重新计算，不能指定任意起始章号。例如原书第 3 章的 `3.1` 可能显示为 `1.1`，而书中公式和图表仍为 `3.x`；实际行为随版本变化时重新核实。保留原书编号时，不给仍带静态数字的标题启用自动编号；选择自动编号并接受变化时，先移除标题文字中的原编号，再按真实层级设置自动编号，避免重复显示。不要添加虚构标题凑编号，也不改动书中的公式、图表或引用编号。
+
 普通 `##` 不会自动编号。插入时用 `seqAuto`：
 
 ```json
@@ -93,6 +97,8 @@ fullfold-cli --json --library /path/to/lib pdf annotations list --path paper.pdf
 ```json
 { "op": "set", "target": { "path": [2], "hash": "sha256:…" }, "fields": { "seq_auto": true } }
 ```
+
+写入后用 `doc outline` 或 `doc read --format model` 检查标题文字、层级和 `seqAuto`。标题上看得到数字，只能说明有数字，不代表开启了自动编号。
 
 ### 居中图片 + 图注
 
@@ -140,10 +146,10 @@ fullfold-cli --json --library /path/to/lib pdf annotations list --path paper.pdf
 
 ## 版本与更新
 
-- 本 skill 的版本在 `VERSION`（当前 0.1.0）；master 是独立公开仓库 https://github.com/Lzjin426/fullfold-cli（本地 `~/.skillsbase/skills/fullfold-cli`）。
+- 本 skill 的版本在 `VERSION`（当前 0.1.1）；master 是独立公开仓库 https://github.com/Lzjin426/fullfold-cli（本地 `~/.skillsbase/skills/fullfold-cli`）。
 - 首次使用或怀疑过期：运行 `python3 scripts/check_update.py`（只读、几秒）。有新版就告诉用户，不要自动改。
-- 修改本 skill 后：升 `VERSION`，再跑 `python3 scripts/check_push_version.py`，输出 `VERSION_OK` 才推送 skills 仓库。
-- 推送后把 `SKILL.md`、`VERSION`、`scripts/` 同步到 Qoder 副本 `~/.qoder-cn/skills/fullfold-cli`（目前是复制，不是链接）。
+- 修改本 skill 后升 `VERSION`；需要发布本 skill 的独立仓库时，先按用户授权运行 `python3 scripts/check_push_version.py`，输出 `VERSION_OK` 才发布。不要向已停止维护的 `.skillsbase/skills` 共享库推送。
+- Qoder 入口如果指向本技能目录，会随本地修改生效；如果是独立副本，再按实际部署方式同步。
 - 项目侧规则：正文格式、默认样式、富块 schema 或 CLI 命令面变化时，同步 CLI、CLI 合同与本 skill（见项目 AGENTS.md）。
 
 ## 结果与退出码
