@@ -10,14 +10,14 @@ description: Read and write a Fullfold.md library from agents or scripts with th
 用户要在 Fullfold 文档库里读取或修改数据，而不是操作界面时：
 
 - 笔记：列出、读取、搜索、大纲、追加、块级 patch、整篇替换、改名、移动、回收站。
-- 画板：列出、读取 JSON Canvas、按节点/边 patch。
+- 画板：列出、读取、创建、改名、回收站；`.canvas` 节点/边 patch 与 `.excalidraw` 元素级 patch。
 - 链接、附件、日历/日笔记、回收站、冲突稿。
 - PDF：只读信息与 4+1 标注 sidecar（PDF 原文件永不改写）。
 - 不负责 UI：标签、窗口、主题、缩放、阅读模式不属于 CLI。
 
 ## 第一原则
 
-**不要用 `cat`、`sed`、`python`、重定向或任何直接文件写入去改库内 `.md`、`.canvas`、`.quiet/**` 或 PDF sidecar。** 先调用 `fullfold-cli`；它经过 `fdl_core` 的模型、Markdown、Canvas 和标注 API，能保留富内容、未知字段、冲突稿和原子写。
+**不要用 `cat`、`sed`、`python`、重定向或任何直接文件写入去改库内 `.md`、`.canvas`、`.excalidraw`、`.quiet/**` 或 PDF sidecar。** 先调用 `fullfold-cli`；它经过 `fdl_core` 的模型、Markdown、Canvas 和标注 API，能保留富内容、未知字段、冲突稿和原子写。
 
 ## 先发现命令
 
@@ -71,6 +71,7 @@ fullfold-cli --json --library /path/to/lib doc write --id <id> --source new.md -
 # 画板 / 日历 / PDF 标注
 fullfold-cli --json --library /path/to/lib board read --id <id> --format summary
 fullfold-cli --json --library /path/to/lib board patch --id <id> --ops board-ops.json --expect sha256:<hash>
+fullfold-cli --json --library /path/to/lib board create --title "草图" --folder <id> --elements elements.json --dry-run
 fullfold-cli --json --library /path/to/lib calendar read --date 2026-11-16
 fullfold-cli --json --library /path/to/lib pdf annotations list --path paper.pdf
 ```
@@ -124,29 +125,41 @@ fullfold-cli --json --library /path/to/lib pdf annotations list --path paper.pdf
 
 颜色名必须是 palette 认识的名称；未知名称退出 5。分栏只能用 `replace-block` 或插入新块，不能靠 `replace` 把文本改成结构。
 
-## 画板（JSON Canvas）
+## 画板（JSON Canvas 与 Excalidraw）
 
-当前构建的能力（以 `capabilities --json` 为准）：`board list`、`board read`、`board patch` 可用；`board create`、`board replace`、`board rename`、`board trash` 未实现（退出 8）。新建画板用 GUI 的斜杠「画板」，CLI 只在已有画板上工作。
+画板分两类，以 `board list` 返回的 `kind` 为准：`canvas`（旧 AFFiNE 画板）和 `excalidraw`（独立 `.excalidraw` 文件）。`capabilities --json` 的 `features.boards` / `features.excalidrawWrites` 说明本构建支持到什么程度。
 
-- 找画板：`board list --folder <id|path>`，返回 id 和库内相对 path。
-- 读：`board read --id <id> --format json`，得到 JSON Canvas 的 nodes/edges；节点有稳定 id。
-- 改：`board patch --ops ops.json`（`add-node`、`move-node`、`set-node`、`delete-node`、`connect`、`delete-edge`）；先 dry-run，写时带 `--expect`。
-- 嵌入正文：用 `doc patch` 插入一个 file 块。`src` 用画板文件的绝对路径：`library info` 的 `root` 拼接 `board list` 返回的相对 path。
+- 找画板：`board list --folder <id|path>`，返回 id、库内相对 path 和 `kind`。
+- 读：`board read --id <id>|--path <库内路径> --format json|summary`。`.canvas` 给 JSON Canvas 的 nodes/edges；`.excalidraw` 给官方 Excalidraw JSON（type/version/source/elements/appState/files），`summary` 给 elements/files/text。
+- 嵌入正文：用 `doc patch` 插入 file 块，`src` 用绝对路径：`library info` 的 `root` 拼 `board list` / `board create` 返回的库内相对 path。
 
 ```json
 { "op": "insert", "target": { "path": [2], "hash": "sha256:…" }, "position": "after",
   "block": { "kind": "file", "srcKind": "canvas", "src": "<root>/<相对 path>.canvas", "name": "画板.canvas", "view": "preview" } }
 ```
 
-不要直接改 `.canvas`；不要手写节点/边的 id。
+### `.canvas`（旧画板）
 
-## Excalidraw（内嵌块）
+- `board patch` 支持节点/边 ops：`add-node`、`move-node`、`set-node`、`delete-node`、`connect`、`delete-edge`；未知节点/边 id 退出 3。
+- `board create --type canvas`、`.canvas` 的 `board rename` / `board trash` 退出 8；新建与生命周期仍走 GUI。
 
-当前构建还不支持：CLI 没有对应的块 schema/命令，不要在 `.md` 里手写 HTML，也不要直接改文件。M1 交付后按 `capabilities` 更新本 skill；Excalidraw JSON 即使 AI 熟悉，也必须经过本库的包装层与往返校验。
+### `.excalidraw`（独立文件）
+
+- 文件在笔记同名子文件夹（`笔记名/画板 1.excalidraw`）；正文引用卡片和侧栏子项由应用维护，卡片用 GUI 插入，不要在 CLI 里手写 HTML。
+- 创建：`board create --title <名称> [--folder <id|path>] [--elements <文件|->] [--dry-run]`。只建 `.excalidraw`；命名冲突（含同名目录）自动递增为 `标题 (2)`；返回 `boardId` / `title` / `path` / `hash` / `elements`，`path` 是库根相对路径。
+- 改名：`board rename --id|--path --title <名称> [--expect] [--dry-run]`，引用卡片随迁。回收站：`board trash --id|--path [--expect] [--dry-run]`，进系统废纸篓，笔记与卡片保留。Windows 上网络共享、`Volume{GUID}`、超过 `MAX_PATH` 的路径没有可靠回收站，命令退出 8，要在文件管理器里手动删除。
+- 元素级修改：`board patch --ops <文件|-> [--dry-run] [--expect sha256:…]`，ops 有：
+  - `add-element`：`element` 可以是官方完整元素（`version` / `versionNonce` / `seed` 等原样保留），也可以是 MCP 简化元素（`type/id/x/y/width/height`，形状可带 `label`，箭头可带 `start` / `end`）。`label` 生成居中绑定文字；箭头端点可指向同一批或画板已有元素，CLI 维护反向 `boundElements`。`id` 必须唯一，省略时自动生成。`cameraUpdate` 伪元素忽略；`delete` 伪元素只用于 `board create --elements` 点名“不要创建”的 id，`add-element` 不接受它（删已有元素用 `delete-element`）。图片只能引用画板 `files` 里已有的 `fileId`；内联 dataURL 与新增图片文件不支持。
+  - `set-element`：`id` + `fields`（官方字段）。已知字段按模型类型严格校验（`points` 至少两个 `[x, y]`、枚举必须是认识的值、`fontFamily` 必须是整数等），不合规退出 5 且整批不写；不能改 `id` / `type` / `version` / `isDeleted` 和绑定字段（`startBinding` / `endBinding` / `boundElements` / `containerId` / `frameId`）；文本不能置空（用 `delete-element`）；只给 `text` 时同步 `originalText`。改几何不会带动已绑定箭头端点。
+  - `delete-element`：按官方删除语义连带删绑定文字、清理指向它的绑定；删画框时子元素留在画板。
+  - `set-app`：`fields` 只接受 `viewBackgroundColor`、`gridSize`、`gridStep`（1–100，取整）、`gridModeEnabled`。
+- 写回采用应用的 canonical 形式：`source` 改写，`isDeleted` 元素、未被引用的 `files`、未知 `appState` 与顶层键不保留；要逐字节保真就别用 patch。画板里有未落盘的 dataURL 图片时写回退出 5，先用 GUI 打开一次让图片进库内 `assets`。
+- 任一 op 失败整批不写；读写之间磁盘变化按 `disk_changed` 退出 4；没有实际变化不写盘。
+- `board replace` 仍退出 8；不要直接改 `.canvas` / `.excalidraw`，不要手写节点/边/元素 id。
 
 ## 版本与更新
 
-- 本 skill 的版本在 `VERSION`（当前 0.1.1）；master 是独立公开仓库 https://github.com/Lzjin426/fullfold-cli（本地 `~/.skillsbase/skills/fullfold-cli`）。
+- 本 skill 的版本在 `VERSION`（当前 0.1.3）；master 是独立公开仓库 https://github.com/Lzjin426/fullfold-cli（本地 `~/.skillsbase/skills/fullfold-cli`）。
 - 首次使用或怀疑过期：运行 `python3 scripts/check_update.py`（只读、几秒）。有新版就告诉用户，不要自动改。
 - 修改本 skill 后升 `VERSION`；需要发布本 skill 的独立仓库时，先按用户授权运行 `python3 scripts/check_push_version.py`，输出 `VERSION_OK` 才发布。不要向已停止维护的 `.skillsbase/skills` 共享库推送。
 - Qoder 入口如果指向本技能目录，会随本地修改生效；如果是独立副本，再按实际部署方式同步。
@@ -164,4 +177,4 @@ fullfold-cli --json --library /path/to/lib pdf annotations list --path paper.pdf
 ## 找不到命令或二进制
 
 - 先运行 `fullfold-cli --help` 和 `capabilities --json`；仍没有就明确告诉用户本构建不支持，不要用直接文件写入兜底。
-- 找不到 `fullfold-cli` 时，问用户二进制路径；源码构建可用 `target/release/fullfold-cli`，不要假设它在 PATH。
+- 找不到 `fullfold-cli` 时，先看应用 设置 › 文档库 › 安装命令行工具：它把随应用附带的 CLI 装到 Windows `%LOCALAPPDATA%\Fullfold\bin\fullfold-cli.exe`（macOS `~/.local/bin/fullfold-cli`）并加进 PATH，应用升级后自动刷新。仍找不到再问用户二进制路径；源码构建可用 `target/release/fullfold-cli`，不要假设它在 PATH。
